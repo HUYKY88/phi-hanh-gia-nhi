@@ -805,12 +805,13 @@ function fresh() {
     cloud:{ group:null, groupName:'', rt:null, uid:null, seen:[], sent:{}, team:{} } };
 }
 let DB = (() => { try { const raw = localStorage.getItem(KEY); if (raw) { const d = JSON.parse(raw); const f = fresh(); d.settings = Object.assign(f.settings, d.settings || {}); d.rewards = d.rewards || f.rewards; d.profiles = d.profiles || []; d.cloud = Object.assign(f.cloud, d.cloud || {}); return d; } } catch (e) {} return fresh(); })();
-function save() { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) {} try { if (route.name === 'tkid' && TKID) tSchedule(); } catch (e) {} }
 function newProfile(name, avatar, grade) {
   return { id:'p' + Date.now().toString(36) + rid(3).toLowerCase(), name, avatar, grade, stars:0, spent:0, sday:{}, math:{}, words:{}, time:{}, extra:{}, log:[], badges:[], redeemed:[], assign:null, days:[],
     promo:null, gradeLog:[] };
 }
-const P = () => DB.profiles.find(p => p.id === DB.current) || null;
+const P = () => { try { if (route.name === 'tkid' && TKID) return TKID; } catch (e) {} return DB.profiles.find(p => p.id === DB.current) || null; };   // ở Phòng giáo viên, P() là bé đang xem
+const limOf = p => p && p.lim != null ? p.lim : DB.settings.dailyMin;   // giới hạn phút học riêng từng bé
 function mathState(p, tid) { return p.math[tid] || (p.math[tid] = { level:1, up:0, down:0, att:0, ok:0, best:0, sessions:0 }); }
 const avail = p => p.stars - p.spent;
 /* mã ngẫu nhiên, bỏ các chữ dễ nhầm (0/O, 1/I/L) */
@@ -2852,8 +2853,8 @@ async function fbAuth() {
   const j = await r.json(); ID_TOKEN = j.idToken; c.rt = j.refreshToken; c.uid = j.localId; ID_EXP = Date.now() + (+j.expiresIn || 3600) * 1000; save();
   return ID_TOKEN;
 }
-async function fsReq(method, path, body, query) {
-  const tok = await fbAuth();
+async function fsReq(method, path, body, query, token) {
+  const tok = token || await fbAuth();
   const r = await fetch(`https://firestore.googleapis.com/v1/projects/${FB.projectId}/databases/(default)/documents${path}${query || ''}`,
     { method, headers:{ Authorization:'Bearer ' + tok, 'Content-Type':'application/json' }, body: body ? JSON.stringify(body) : undefined });
   if (r.status === 404 && method === 'GET') return null;
@@ -2867,7 +2868,7 @@ function memberDoc(p) {
 }
 function cloudSync(p) { if (!cloudOn() || !p) return; clearTimeout(syncT); syncT = setTimeout(() => cloudPush(p), 600); }
 async function cloudPush(p, force) {
-  if (!cloudOn() || !p) return false;
+  if (!cloudOn() || !p || p.__t) return false;   // bản xem ở Phòng giáo viên không bao giờ ghi đè tiến độ của bé
   try {
     if (DB.cloud.group) {
       const doc = memberDoc(p);
@@ -2875,7 +2876,8 @@ async function cloudPush(p, force) {
       catch (e) { if (e.status !== 403) throw e; delete doc.pet; delete doc.lv;   // quy tắc Firebase cũ chưa cho dữ liệu làng: vẫn gửi điểm thi đua
         await fsReq('PATCH', `/groups/${DB.cloud.group}/members/${p.id}`, { fields:fsFields(doc) }); }
     }
-    if (DB.settings.backup || force) {
+    if (p.ck) await kidPush(p);   // bé thuộc lớp: tiến độ lưu thẳng vào lớp, không cần mã sao lưu riêng
+    else if (DB.settings.backup || force) {
       if (!p.bk) { p.bk = rid(16); save(); }
       await fsReq('PATCH', `/backups/${p.bk}`, { fields:fsFields({ data:JSON.stringify(p), up:Date.now(), v:1 }) });
     }
@@ -2928,6 +2930,100 @@ async function loadCheers() {
   } catch (e) {}
 }
 
+/* ---------- lớp học: Phòng giáo viên + link riêng của từng bé ----------
+   groups/{mã lớp}            { name, created, admins:[uid giáo viên], rewards (JSON), passPct }
+   groups/{mã lớp}/kids/{mã bí mật 20 chữ}  { name, av, pid, created, data (JSON hồ sơ), dataAt, set (JSON cài đặt), setAt }
+   Giáo viên đăng nhập email + mật khẩu (nhiều máy). Bé mở link #lop=…&be=… là vào đúng chỗ của mình.
+   Cài đặt (lớp, bài giao, bài thi, giới hạn giờ, quà đã đổi) ai chỉnh sau thì được tính (setAt). */
+const SITE_URL = 'https://huyky88.github.io/phi-hanh-gia-nhi/';
+let T_TOKEN = null, T_EXP = 0, TKID = null, TKTAB = 'report', TEACH = { state:'', cls:null, kids:[], msg:'' }, tTimer = null;
+const kidLink = k => `${location.protocol.startsWith('http') ? location.origin + location.pathname : SITE_URL}#lop=${TEACH.cls.id}&be=${k}`;
+const kidSetJSON = p => JSON.stringify({ grade:gradeOf(p), promo:p.promo || null, assign:p.assign || null, lim:p.lim == null ? null : p.lim, extra:p.extra || {}, spent:p.spent || 0, redeemed:p.redeemed || [], gradeLog:p.gradeLog || [] });
+function kidApplySet(p, o) {
+  if (!o || !o.set || !(o.setAt > (p.kSetAt || 0))) return false;
+  try { Object.assign(p, JSON.parse(o.set)); } catch (e) { return false; }
+  p.kSetAt = o.setAt; p.kSetSent = kidSetJSON(p); return true;
+}
+function classApply(c) {   // danh sách quà và điểm đạt bài thi dùng chung cả lớp
+  if (!c) return; try { if (c.rewards) DB.rewards = JSON.parse(c.rewards); } catch (e) {} if (c.passPct) DB.settings.passPct = c.passPct; if (c.name) DB.cloud.groupName = c.name;
+}
+const mask = fs => fs.map(f => 'updateMask.fieldPaths=' + f).join('&');
+async function kidPush(p) {
+  const f = { data:JSON.stringify(p), dataAt:Date.now() }, sj = kidSetJSON(p);
+  if (sj !== p.kSetSent) { f.set = sj; f.setAt = Date.now(); p.kSetAt = f.setAt; p.kSetSent = sj; save(); }
+  await fsReq('PATCH', `/groups/${p.ck.g}/kids/${p.ck.k}`, { fields:fsFields(f) }, '?' + mask(Object.keys(f)));
+}
+async function kidPull() {   // lấy cài đặt mới nhất giáo viên / bố mẹ vừa chỉnh
+  if (!cloudOn()) return; let changed = false;
+  for (const p of DB.profiles.filter(x => x.ck)) {
+    try { const d = await fsReq('GET', `/groups/${p.ck.g}/kids/${p.ck.k}`); if (!d) continue; if (kidApplySet(p, fsObj(d))) changed = true; } catch (e) {}
+  }
+  const g = DB.cloud.group; if (g && DB.profiles.some(x => x.ck && x.ck.g === g)) { try { classApply(fsObj(await fsReq('GET', `/groups/${g}`))); changed = true; } catch (e) {} }
+  if (changed) { save(); render(); }
+}
+async function joinFromLink() {
+  const m = (location.hash || '').match(/lop=([A-Za-z0-9]{6}).*be=([A-Za-z0-9]{20})/); if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (!cloudOn()) return;
+  const g = m[1].toUpperCase(), k = m[2].toUpperCase();
+  try {
+    const d = await fsReq('GET', `/groups/${g}/kids/${k}`); if (!d) { toast('Link này không đúng hoặc bé đã bị xóa khỏi lớp. Bố mẹ hỏi lại giáo viên nhé.'); return; }
+    const o = fsObj(d); classApply(fsObj(await fsReq('GET', `/groups/${g}`)));
+    let x = DB.profiles.find(y => y.ck && y.ck.k === k);
+    if (!x) { x = JSON.parse(o.data || 'null') || newProfile(o.name, o.av, 2); x.id = o.pid || x.id; DB.profiles = DB.profiles.filter(y => y.id !== x.id); DB.profiles.push(x); }
+    x.ck = { g, k }; delete x.__t; kidApplySet(x, o);
+    DB.cloud.group = g; DB.current = x.id; save();
+    go('home'); toast(`Chào ${x.name}! Con đã vào lớp "${DB.cloud.groupName}" 🚀`); cloudPush(x);
+  } catch (e) { toast('Chưa kết nối được mạng. Bố mẹ bấm lại link sau nhé.'); }
+}
+/* giáo viên */
+async function tAuth(email, pass, create) {
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:${create ? 'signUp' : 'signInWithPassword'}?key=${FB.apiKey}`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ email, password:pass, returnSecureToken:true }) });
+  const j = await r.json(); if (!r.ok) throw Object.assign(new Error('auth'), { code:(j.error && j.error.message) || '' });
+  DB.teach = { email, uid:j.localId, rt:j.refreshToken }; T_TOKEN = j.idToken; T_EXP = Date.now() + (+j.expiresIn || 3600) * 1000; save();
+}
+async function tTok() {
+  if (T_TOKEN && Date.now() < T_EXP - 60000) return T_TOKEN;
+  if (!DB.teach || !DB.teach.rt) throw new Error('login');
+  const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FB.apiKey}`, { method:'POST', headers:{ 'Content-Type':'application/x-www-form-urlencoded' }, body:'grant_type=refresh_token&refresh_token=' + encodeURIComponent(DB.teach.rt) });
+  if (!r.ok) { DB.teach = null; save(); throw new Error('login'); }
+  const j = await r.json(); T_TOKEN = j.id_token; DB.teach.rt = j.refresh_token; T_EXP = Date.now() + (+j.expires_in || 3600) * 1000; save(); return T_TOKEN;
+}
+const tReq = async (m, p, b, q) => fsReq(m, p, b, q, await tTok());
+const AUTH_MSG = { EMAIL_EXISTS:'Email này đã có tài khoản, hãy bấm Đăng nhập.', INVALID_LOGIN_CREDENTIALS:'Sai email hoặc mật khẩu.', INVALID_PASSWORD:'Sai mật khẩu.', EMAIL_NOT_FOUND:'Chưa có tài khoản với email này.',
+  INVALID_EMAIL:'Email không đúng dạng.', OPERATION_NOT_ALLOWED:'Firebase chưa bật đăng nhập bằng Email/Password.', TOO_MANY_ATTEMPTS_TRY_LATER:'Thử sai nhiều lần, đợi một lát rồi thử lại.' };
+async function tLoad() {   // tìm lớp của giáo viên và danh sách các bé
+  TEACH.state = 'loading'; render();
+  try {
+    const uid = DB.teach.uid;
+    const res = await tReq('POST', ':runQuery', { structuredQuery:{ from:[{ collectionId:'groups' }], where:{ fieldFilter:{ field:{ fieldPath:'admins' }, op:'ARRAY_CONTAINS', value:{ stringValue:uid } } }, limit:1 } });
+    const doc = (res || []).find(r => r.document);
+    TEACH.cls = doc ? Object.assign({ id:docId(doc.document) }, fsObj(doc.document)) : null;
+    if (TEACH.cls) {
+      classApply(TEACH.cls);
+      const j = await tReq('GET', `/groups/${TEACH.cls.id}/kids`, null, '?pageSize=200');
+      TEACH.kids = ((j && j.documents) || []).map(d => Object.assign({ id:docId(d) }, fsObj(d))).sort((a, b) => (a.created || 0) - (b.created || 0));
+    }
+    TEACH.state = 'ok';
+  } catch (e) { TEACH.state = e.message === 'login' ? '' : 'err'; }
+  if (['teach','tkid'].includes(route.name)) render();
+}
+function tKidProfile(o) {   // bản xem của bé trên máy giáo viên (không lưu vào máy, không ghi đè tiến độ)
+  let x; try { x = JSON.parse(o.data || 'null'); } catch (e) {}
+  x = x || newProfile(o.name, o.av, 2); x.id = o.pid || x.id; kidApplySet(x, o); x.__t = true; x.__k = o.id; return x;
+}
+function tSchedule() { clearTimeout(tTimer); tTimer = setTimeout(tPush, 700); }
+async function tPush() {   // giáo viên chỉnh cài đặt của bé → ghi set; danh sách quà / điểm đạt → ghi vào lớp
+  if (!TKID || !TEACH.cls) return;
+  const sj = kidSetJSON(TKID);
+  try {
+    if (sj !== TKID.kSetSent) { const at = Date.now(); await tReq('PATCH', `/groups/${TEACH.cls.id}/kids/${TKID.__k}`, { fields:fsFields({ set:sj, setAt:at }) }, '?' + mask(['set','setAt'])); TKID.kSetSent = sj; TKID.kSetAt = at;
+      const o = TEACH.kids.find(k => k.id === TKID.__k); if (o) { o.set = sj; o.setAt = at; } }
+    const rw = JSON.stringify(DB.rewards);
+    if (rw !== TEACH.cls.rewards || DB.settings.passPct !== TEACH.cls.passPct) { await tReq('PATCH', `/groups/${TEACH.cls.id}`, { fields:fsFields({ rewards:rw, passPct:DB.settings.passPct }) }, '?' + mask(['rewards','passPct'])); TEACH.cls.rewards = rw; TEACH.cls.passPct = DB.settings.passPct; }
+  } catch (e) { toast('Chưa lưu được lên mạng, kiểm tra kết nối nhé.'); }
+}
+
 /* ---------- app state ---------- */
 let route = { name:'home' };
 let NEW_GRADE = 0, RACE = { state:'', list:[], err:'' }, CHEERS = [], CHEER_OPEN = null, CLOUD_MSG = '', RESTORE_MSG = '';
@@ -2947,7 +3043,7 @@ function go(name, params) {
   if (name === 'parent' && PTAB === 'race' && DB.cloud.group) raceLoad();
 }
 function timeLeft() {
-  const p = P(), lim = DB.settings.dailyMin; if (!lim || !p) return Infinity;
+  const p = P(), lim = limOf(p); if (!lim || !p) return Infinity;
   const t = today(); const extra = (p.extra && p.extra[t]) || 0;
   return (lim + extra) * 60000 - (p.time[t] || 0);
 }
@@ -2963,6 +3059,7 @@ const META = {
   cards:{ back:() => FC && FC.source === 'warmup' ? 'eng' : 'stars', title:'Thẻ từ vựng' },
   result:{ back:() => !RESULT || RESULT.kind === 'promo' ? 'home' : RESULT.kind === 'math' ? 'math' : 'eng', title:'Kết quả' },
   race:{ back:'home', title:'Đua sao cùng các bạn' },
+  teach:{ back:() => DB.profiles.length ? 'profiles' : 'welcome', title:'Phòng giáo viên' }, tkid:{ back:'teach', title:() => TKID ? `Quản lý: ${TKID.name}` : 'Quản lý bé' },
   village:{ back:'dino', title:'Làng hành tinh khủng long' }, visit:{ back:'village', title:() => { const m = RACE.list.find(x => x.id === route.id); return m ? `Hành tinh của ${m.nick}` : 'Đi thăm bạn'; } }, restore:{ back:() => DB.profiles.length ? 'profiles' : 'welcome', title:'Khôi phục tiến độ' },
   gate:{ back:'home', title:'Khu phụ huynh' }, parent:{ back:'home', title:'Khu phụ huynh' },
   timesup:{ back:'home', title:'Nghỉ ngơi' },
@@ -3000,7 +3097,8 @@ const VIEWS = {
         <div class="avatars">${AVATARS.map((a, i) => `<button type="button" class="avpick ${i === NEW_AV ? 'on' : ''}" data-act="pickAv" data-arg="${i}" aria-label="Hình ${i + 1}">${a}</button>`).join('')}</div>
         <button class="btn primary big" type="submit">Bắt đầu bay 🚀</button>
       </form>
-      ${cloudOn() ? '<button class="btn ghost" data-act="go" data-arg="restore">Đã học ở máy khác? Khôi phục bằng mã</button>' : ''}</section>`;
+      ${cloudOn() ? '<p class="lead">Con học trong lớp? Bố mẹ chỉ cần bấm vào <b>đường link giáo viên gửi</b> trên máy này, con sẽ vào thẳng chỗ của mình.</p><button class="btn ghost" data-act="go" data-arg="restore">Đã học ở máy khác? Khôi phục bằng mã</button>' : ''}
+      ${cloudOn() ? '<button class="btn ghost" data-act="go" data-arg="teach">👩‍🏫 Phòng giáo viên</button>' : ''}</section>`;
   },
   restore() {
     return `<section class="panel form"><h2>Khôi phục tiến độ của bé</h2>
@@ -3011,11 +3109,57 @@ const VIEWS = {
   profiles() {
     return `<div class="stations">${DB.profiles.map(p => `<button class="station" data-act="useProfile" data-arg="${p.id}">
       <span class="orb" style="--c:var(--panel-2)">${p.avatar}</span><span class="st-body"><span class="st-name">${esc(p.name)}<span class="gradechip">Lớp ${gradeOf(p)}</span></span><span class="st-sub">⭐ ${avail(p)} sao · ${Object.keys(p.words).length} từ đã gặp</span></span></button>`).join('')}
-      <button class="station" data-act="go" data-arg="welcome" style="border:2px dashed var(--line);background:transparent"><span class="orb" style="--c:var(--panel)">＋</span><span class="st-body"><span class="st-name">Thêm bé</span><span class="st-sub">Mỗi bé có tiến độ riêng</span></span></button></div>`;
+      <button class="station" data-act="go" data-arg="welcome" style="border:2px dashed var(--line);background:transparent"><span class="orb" style="--c:var(--panel)">＋</span><span class="st-body"><span class="st-name">Thêm bé</span><span class="st-sub">Mỗi bé có tiến độ riêng</span></span></button></div>
+      <div class="row">${cloudOn() ? '<button class="btn ghost" data-act="go" data-arg="teach">👩‍🏫 Phòng giáo viên</button>' : ''}</div>`;
+  },
+  teach() {
+    if (!cloudOn()) return '<p class="panel lead">Cần kết nối Firebase trước.</p>';
+    const msg = TEACH.msg ? `<p class="cheer-in">${esc(TEACH.msg)}</p>` : '';
+    if (!DB.teach || !DB.teach.rt) return `${msg}<section class="panel form"><h2>👩‍🏫 Đăng nhập Phòng giáo viên</h2>
+      <p class="lead">Dùng cùng email và mật khẩu trên mọi máy để quản lý cả lớp. Lần đầu tiên, bấm <b>Tạo tài khoản</b>.</p>
+      <form id="fTeach" class="form" autocomplete="on"><input id="tEmail" class="field" type="email" placeholder="Email" required autocomplete="username">
+        <input id="tPass" class="field" type="password" placeholder="Mật khẩu (ít nhất 6 ký tự)" minlength="6" required autocomplete="current-password">
+        <div class="row" style="justify-content:flex-start"><button class="btn primary" type="submit" data-mode="in">Đăng nhập</button><button class="btn" type="submit" data-mode="new">Tạo tài khoản</button></div></form></section>`;
+    if (TEACH.state === '' ) { setTimeout(tLoad, 0); return '<p class="panel lead">Đang mở Phòng giáo viên…</p>'; }
+    if (TEACH.state === 'loading' && !TEACH.cls) return '<p class="panel lead">Đang tải lớp học…</p>';
+    if (TEACH.state === 'err' && !TEACH.cls) return `${msg}<p class="panel lead">Chưa kết nối được mạng.</p><button class="btn" data-act="tRefresh">Thử lại</button>`;
+    const out = `<div class="row" style="justify-content:flex-start"><span class="lead">Đăng nhập: ${esc(DB.teach.email)}</span><button class="btn sm ghost" data-act="tLogout">Đăng xuất</button></div>`;
+    if (!TEACH.cls) return `${msg}<section class="panel form"><h2>Tạo lớp học</h2><p class="lead">Mỗi giáo viên có một lớp. Các bé sẽ đua sao và thăm làng hành tinh trong lớp này.</p>
+      <form id="fClass" class="inline-form" autocomplete="off"><input id="cName" class="field" maxlength="30" placeholder="Tên lớp, ví dụ: Lớp nhà Coca" required><button class="btn primary" type="submit">Tạo lớp</button></form></section>${out}`;
+    const wk = weekStart(today()), t = today();
+    const rows = TEACH.kids.map(o => { const x = tKidProfile(o), ws = weekStats(x), last = x.log.length ? Math.max(...x.log.map(l => l.d)) : null, pt = pet(x);
+      const when = last == null ? 'chưa học bài nào' : last === t ? '✅ đã học hôm nay' : last === t - 1 ? 'học hôm qua' : `học cách đây ${t - last} ngày`;
+      return `<button class="station" data-act="tOpen" data-arg="${o.id}"><span class="orb" style="--c:var(--panel-2)">${esc(o.av || x.avatar)}</span><span class="st-body">
+        <span class="st-name">${esc(o.name)}<span class="gradechip">Lớp ${gradeOf(x)}</span></span><span class="st-sub">⭐ ${ws.ws} sao tuần · ${when} · ${pt.stage < 0 ? '🥚 trứng' : '🦕 ' + STAGE_NAME[pt.stage]}</span></span></button>`; }).join('');
+    return `${msg}<section class="panel"><h2>🏫 ${esc(TEACH.cls.name)}</h2><p class="lead">Mã lớp: <b>${TEACH.cls.id}</b> · ${TEACH.kids.length} bé. Chạm vào tên bé để xem và quản lý.</p></section>
+      <div class="stations">${rows || '<p class="panel lead">Lớp chưa có bé nào. Thêm bé ở dưới nhé.</p>'}</div>
+      <section class="panel form"><h3>＋ Thêm bé vào lớp</h3>
+        <form id="fKid" class="form" autocomplete="off"><input id="kName" class="field" maxlength="16" placeholder="Tên của bé" required style="box-sizing:border-box;width:100%">
+          <div class="setrow"><span>Lớp</span><select id="kGrade" class="field" style="width:auto">${Array.from({ length:GRADE_MAX }, (_, i) => `<option value="${i + 1}" ${i + 1 === 2 ? 'selected' : ''}>Lớp ${i + 1}${READY_GRADES.includes(i + 1) ? '' : ' (chưa có bài)'}</option>`).join('')}</select></div>
+          <span class="label">Hình đại diện</span><div class="avatars">${AVATARS.map((a, i) => `<button type="button" class="avpick ${i === NEW_AV ? 'on' : ''}" data-act="pickAv" data-arg="${i}" aria-label="Hình ${i + 1}">${a}</button>`).join('')}</div>
+          <button class="btn primary" type="submit">Thêm bé và tạo link</button></form></section>
+      <div class="row"><button class="btn ghost" data-act="tRefresh">↻ Cập nhật</button></div>${out}`;
+  },
+  tkid() {
+    const o = TEACH.kids.find(k => k.id === route.k); if (!o || !TKID) return '<p class="panel lead">Không tìm thấy bé.</p>';
+    const x = TKID, link = kidLink(o.id), pt = pet(x), here = DB.profiles.some(y => y.ck && y.ck.k === o.id);
+    const tabs = [['report','Báo cáo'],['assign','Giao bài'],['grade','Lên lớp'],['time','Thời gian'],['gifts','Phần thưởng']];
+    return `<section class="panel"><h2>${esc(x.avatar)} ${esc(x.name)} <span class="gradechip">Lớp ${gradeOf(x)}</span></h2>
+        <p class="lead">Đường link riêng của bé – gửi qua Zalo cho bố mẹ, bấm vào trên máy của bé là xong:</p>
+        <input class="field" readonly value="${esc(link)}" onclick="this.select()" style="box-sizing:border-box;width:100%">
+        <div class="row" style="justify-content:flex-start"><button class="btn primary" data-act="tCopy" data-arg="${o.id}">📋 Sao chép link</button>${navigator.share ? `<button class="btn" data-act="tShare" data-arg="${o.id}">📤 Gửi link</button>` : ''}
+          ${here ? '<span class="chip">✅ Bé đã có trên máy này</span>' : `<button class="btn ghost" data-act="tHere" data-arg="${o.id}">Dùng trên máy này</button>`}</div>
+        <p class="lead">${o.dataAt ? `Cập nhật lần cuối: ${new Date(o.dataAt).toLocaleString('vi-VN')}` : 'Bé chưa mở link lần nào.'}</p></section>
+      <div class="room">${roomSVG(pt, {})}</div>
+      <p class="lead">${pt.stage < 0 ? `🥚 Trứng đang ấp (${pt.warmth || 0}/${EGG_BOXES} hộp quà)` : `🦕 ${esc(dinoName(pt))} · ${SPECIES[pt.species] ? SPECIES[pt.species].name : ''} · ${STAGE_NAME[pt.stage]}`} · ⭐ còn ${avail(x)} sao · 💎 ${pt.gems}</p>
+      <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab ${TKTAB === k ? 'on' : ''}" data-act="tkTab" data-arg="${k}" role="tab" aria-selected="${TKTAB === k}">${l}</button>`).join('')}</div>
+      <div class="pgrid">${PARENT[TKTAB](x)}</div>
+      <p class="lead">Mọi thay đổi ở đây tự lưu lên mạng; máy của bé nhận được ở lần mở app tiếp theo. Nếu bố mẹ bé cũng chỉnh cùng mục thì ai chỉnh sau sẽ được tính.</p>
+      <div class="row"><button class="btn danger" data-act="tDel" data-arg="${o.id}">${ARM === 'tDel' ? `Bấm lần nữa để xóa ${esc(x.name)} khỏi lớp` : 'Xóa bé khỏi lớp'}</button></div>`;
   },
   home() {
     const p = P(), t = today();
-    const lim = DB.settings.dailyMin, left = timeLeft();
+    const lim = limOf(p), left = timeLeft();
     const seen = Object.keys(p.words).length, due = dueWords(p).length;
     const lessons = p.log.filter(l => l.kind === 'math').length;
     let mission = '';
@@ -3391,9 +3535,9 @@ const PARENT = {
         ${SYNC.at ? `<p class="lead">Lần đồng bộ gần nhất: ${new Date(SYNC.at).toLocaleTimeString('vi-VN')} · ${SYNC.state === 'ok' ? 'thành công' : 'chưa được (mất mạng?)'}</p>` : ''}</div>`;
   },
   time(p) {
-    const t = today(), used = Math.round((p.time[t] || 0) / 60000), lim = DB.settings.dailyMin;
-    return `<div class="pcard"><h3>Giới hạn thời gian học</h3>
-      <div class="setrow"><span>Số phút tối đa mỗi ngày<small>Khi hết giờ, bé làm nốt bài đang làm rồi app khóa đến ngày mai.</small></span>
+    const t = today(), used = Math.round((p.time[t] || 0) / 60000), lim = limOf(p);
+    return `<div class="pcard"><h3>Giới hạn thời gian học của ${esc(p.name)}</h3>
+      <div class="setrow"><span>Số phút tối đa mỗi ngày<small>Mỗi bé đặt riêng. Khi hết giờ, bé làm nốt bài đang làm rồi app khóa đến ngày mai.</small></span>
       <select id="sLimit" class="field">${[[0,'Không giới hạn'],[15,'15 phút'],[20,'20 phút'],[30,'30 phút'],[45,'45 phút'],[60,'60 phút']].map(([v, l]) => `<option value="${v}" ${lim === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="kpis"><div class="kpi"><b>${used}</b><small>phút đã học hôm nay</small></div><div class="kpi"><b>${lim ? Math.max(0, Math.ceil(timeLeft() / 60000)) : '∞'}</b><small>phút còn lại</small></div>
       <div class="kpi"><b>${(p.extra && p.extra[t]) || 0}</b><small>phút cho thêm hôm nay</small></div></div>
@@ -3428,7 +3572,7 @@ const PARENT = {
 
 /* ---------- render ---------- */
 function render() {
-  if (!P() && !['welcome','profiles','restore'].includes(route.name)) route = { name: DB.profiles.length ? 'profiles' : 'welcome' };
+  if (!P() && !['welcome','profiles','restore','teach','tkid'].includes(route.name)) route = { name: DB.profiles.length ? 'profiles' : 'welcome' };
   if (route.name === 'parent' && !parentOpen) route = { name:'home' };
   if (['math','eng'].includes(route.name) && !hasContent(P()) && !READY_GRADES.includes(gradeOf(P()) - 1)) route = { name:'home' };
   renderTop();
@@ -3611,6 +3755,20 @@ function rateCard(know) {
 /* ---------- events ---------- */
 const ACT = {
   go: a => go(a),
+  tOpen: a => { const o = TEACH.kids.find(k => k.id === a); if (!o) return; TKID = tKidProfile(o); ARM = null; go('tkid', { k:a }); },
+  tkTab: a => { TKTAB = a; ARM = null; render(); },
+  tCopy: async a => { const l = kidLink(a); try { await navigator.clipboard.writeText(l); toast('Đã sao chép link. Dán vào Zalo gửi cho bố mẹ bé nhé!'); } catch (e) { const i = $('.panel input.field'); if (i) { i.select(); document.execCommand && document.execCommand('copy'); } toast('Đã chọn link, bấm giữ để sao chép'); } },
+  tShare: a => { const o = TEACH.kids.find(k => k.id === a); navigator.share && navigator.share({ title:'Phi Hành Gia Nhí', text:`Link học của ${o ? o.name : 'bé'}: bấm vào trên máy của bé nhé!`, url:kidLink(a) }).catch(() => {}); },
+  tHere: a => { location.hash = kidLink(a).split('#')[1]; joinFromLink(); },
+  tDel: async a => {
+    if (ARM !== 'tDel') { ARM = 'tDel'; render(); return; }
+    ARM = null; const o = TEACH.kids.find(k => k.id === a), pid = o && (o.pid || (TKID && TKID.id));
+    try { await tReq('DELETE', `/groups/${TEACH.cls.id}/kids/${a}`); if (pid) tReq('DELETE', `/groups/${TEACH.cls.id}/members/${pid}`).catch(() => {});
+      TEACH.kids = TEACH.kids.filter(k => k.id !== a); TKID = null; TEACH.msg = `Đã xóa ${o ? o.name : 'bé'} khỏi lớp.`; go('teach'); }
+    catch (e) { toast('Chưa xóa được, kiểm tra mạng nhé.'); }
+  },
+  tLogout: () => { DB.teach = null; T_TOKEN = null; TEACH = { state:'', cls:null, kids:[], msg:'' }; TKID = null; save(); render(); },
+  tRefresh: () => { TEACH.msg = ''; tLoad(); },
   visitFriend: a => go('visit', { id:a }),
   friendPlay: () => {
     const r = $('#room > div'); if (!r) return;
@@ -3829,6 +3987,33 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('submit', e => {
   e.preventDefault();
+  if (e.target.id === 'fTeach') {
+    const email = $('#tEmail').value.trim(), pass = $('#tPass').value, create = e.submitter && e.submitter.dataset.mode === 'new';
+    TEACH.msg = create ? 'Đang tạo tài khoản…' : 'Đang đăng nhập…'; render();
+    tAuth(email, pass, create).then(() => { TEACH = { state:'', cls:null, kids:[], msg:'' }; render(); })
+      .catch(err => { TEACH.msg = AUTH_MSG[String(err.code).split(' ')[0]] || 'Chưa đăng nhập được. Kiểm tra mạng, email và mật khẩu.'; render(); });
+    return;
+  }
+  if (e.target.id === 'fClass') {
+    const name = $('#cName').value.trim(); if (!name) return;
+    TEACH.msg = 'Đang tạo lớp…'; render();
+    (async () => { for (let i = 0; i < 5; i++) { const code = rid(6);
+      try { await tReq('PATCH', `/groups/${code}`, { fields:fsFields({ name, created:Date.now(), admins:[DB.teach.uid], rewards:JSON.stringify(DB.rewards), passPct:DB.settings.passPct }) }, '?currentDocument.exists=false'); return; }
+      catch (err) { if (![400, 409].includes(err.status)) throw err; } } throw new Error('code'); })()
+      .then(() => { TEACH.msg = 'Đã tạo lớp! Giờ thêm các bé vào lớp nhé.'; tLoad(); })
+      .catch(() => { TEACH.msg = 'Chưa tạo được lớp. Kiểm tra mạng và quy tắc Firebase.'; render(); });
+    return;
+  }
+  if (e.target.id === 'fKid') {
+    const name = $('#kName').value.trim(), grade = +$('#kGrade').value; if (!name || !TEACH.cls) return;
+    const k = rid(20), x = newProfile(name, AVATARS[NEW_AV], grade), now = Date.now();
+    TEACH.msg = 'Đang thêm bé…'; render();
+    tReq('PATCH', `/groups/${TEACH.cls.id}/kids/${k}`, { fields:fsFields({ name, av:x.avatar, pid:x.id, created:now, data:JSON.stringify(x), dataAt:0, set:'', setAt:0 }) }, '?currentDocument.exists=false')
+      .then(() => { const o = { id:k, name, av:x.avatar, pid:x.id, created:now, data:JSON.stringify(x), dataAt:0, set:'', setAt:0 }; TEACH.kids.push(o); TEACH.msg = '';
+        TKID = tKidProfile(o); go('tkid', { k }); toast(`Đã thêm ${name}. Gửi link cho bố mẹ bé nhé!`); })
+      .catch(() => { TEACH.msg = 'Chưa thêm được bé. Kiểm tra mạng và quy tắc Firebase.'; render(); });
+    return;
+  }
   if (e.target.id === 'fNew') {
     const name = $('#pname').value.trim(); if (!name) return;
     if (!NEW_GRADE) { toast('Con chọn lớp của mình nhé'); const g = $('.grades'); if (g) g.scrollIntoView({ block:'center' }); return; }
@@ -3875,7 +4060,7 @@ document.addEventListener('submit', e => {
 });
 document.addEventListener('change', e => {
   const id = e.target.id;
-  if (id === 'sLimit') { DB.settings.dailyMin = +e.target.value; save(); render(); }
+  if (id === 'sLimit') { const p = P(); p.lim = +e.target.value; save(); cloudSync(p); render(); }
   if (id === 'sReview') { DB.settings.reviewCount = +e.target.value; save(); }
   if (id === 'sBox') { DB.settings.boxCap = +e.target.value; save(); }
   if (id === 'pprof') { DB.current = e.target.value; save(); render(); }
@@ -3900,6 +4085,9 @@ if (!DB.current && DB.profiles[0]) DB.current = DB.profiles[0].id;
 route = { name: P() ? 'home' : (DB.profiles.length ? 'profiles' : 'welcome') };
 render();
 if (cloudOn() && DB.cloud.group) { loadCheers(); if (P()) cloudSync(P()); }
+if (cloudOn()) { joinFromLink(); kidPull(); }
+window.addEventListener('hashchange', joinFromLink);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) kidPull(); });
 </script>
 
 </body>
