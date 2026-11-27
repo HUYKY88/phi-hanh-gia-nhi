@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Phi Hành Gia Nhí</title>
+<title>Phi Hanh Gia Nhi</title>
 </head>
 <body>
 <title>Phi Hành Gia Nhí</title>
@@ -443,6 +443,9 @@ select.field{min-height:46px;font-size:17px;width:auto;padding:6px 10px}
 .vbadges span{background:var(--panel-2);border-radius:14px;padding:6px 10px;font-weight:800;font-size:14px}
 .room .play-jump .dino-anim{animation:pjump .6s ease}
 @keyframes pjump{0%,100%{transform:translateY(0)}40%{transform:translateY(-34px)}70%{transform:translateY(4px)}}
+/* thách đấu */
+.ghud{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.ghud .qmeta{font-size:17px;font-weight:800}
 /* phân số, số mũ */
 .fr{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1.05;margin:0 .12em;font-style:normal}
 .fr i{font-style:normal;padding:0 .15em}
@@ -792,6 +795,8 @@ const BADGES = [
   { id:'words10', e:'✨', name:'Chòm sao 10 từ', desc:'10 từ đạt mức "Nhớ khá" trở lên' },
   { id:'grad', e:'🎓', name:'Lên lớp mới', desc:'Vượt qua bài thi lên lớp' },
   { id:'friend', e:'🤝', name:'Người bạn tốt', desc:'Tặng quà cho khủng long của bạn 10 lần' },
+  { id:'pilot', e:'🏆', name:'Phi công nhanh nhất', desc:'Dẫn đầu Đua tàu lên Sao Hỏa trong một tuần' },
+  { id:'slayer', e:'⚔️', name:'Dũng sĩ diệt quái', desc:'Bắn nhiều nhất khi cả đội hạ quái vật' },
 ];
 
 /* ---------- storage ---------- */
@@ -2661,9 +2666,11 @@ const SHOP = [
   { id:'d-planet', cat:'decor', name:'Hành tinh nhỏ', price:30, e:'🪐' },
   { id:'d-rocket', cat:'decor', name:'Tàu vũ trụ', price:35, e:'🚀' },
 ];
+SHOP.push({ id:'helm', cat:'hat', name:'Mũ chiến binh (đồ hiếm)', price:0, reward:true, svg:'<path d="M-18 4 Q-18 -24 0 -24 Q18 -24 18 4 Z" fill="#b8c2d6" stroke="#6b7590" stroke-width="2"/><rect x="-18" y="0" width="36" height="6" rx="2" fill="#8d98b3"/><path d="M0 -24 Q6 -40 18 -42 Q8 -30 6 -22 Z" fill="#ff5a5a" stroke="#c43a3a" stroke-width="1.5"/>' },
+  { id:'d-shield', cat:'decor', name:'Khiên thiên thạch (đồ hiếm)', price:0, reward:true, e:'🛡️' });
 const ITEM = Object.fromEntries(SHOP.map(i => [i.id, i]));
 const CATS = [['hat','Mũ'],['face','Kính'],['neck','Cổ'],['back','Lưng'],['color','Màu da'],['room','Phòng'],['decor','Trang trí']];
-const DECOR_POS = { 'd-palm':[40, 238, 64], 'd-ball':[324, 246, 30], 'd-planet':[352, 58, 38], 'd-rocket':[58, 100, 44] };
+const DECOR_POS = { 'd-shield':[350, 226, 40], 'd-palm':[40, 238, 64], 'd-ball':[324, 246, 30], 'd-planet':[352, 58, 38], 'd-rocket':[58, 100, 44] };
 
 function pet(p) {
   if (!p.pet) p.pet = { name:'', species:'coDai', stage:-1, warmth:0, xp:0, color:'green', wear:{}, room:'station', decor:[], owned:['c-green','r-station'],
@@ -2945,7 +2952,7 @@ function kidApplySet(p, o) {
   p.kSetAt = o.setAt; p.kSetSent = kidSetJSON(p); return true;
 }
 function classApply(c) {   // danh sách quà và điểm đạt bài thi dùng chung cả lớp
-  if (!c) return; try { if (c.rewards) DB.rewards = JSON.parse(c.rewards); } catch (e) {} if (c.passPct) DB.settings.passPct = c.passPct; if (c.name) DB.cloud.groupName = c.name;
+  if (!c) return; try { if (c.rewards) DB.rewards = JSON.parse(c.rewards); if (c.boss) DB.cloud.bossTW = JSON.parse(c.boss); } catch (e) {} if (c.passPct) DB.settings.passPct = c.passPct; if (c.name) DB.cloud.groupName = c.name;
 }
 const mask = fs => fs.map(f => 'updateMask.fieldPaths=' + f).join('&');
 async function kidPush(p) {
@@ -3138,6 +3145,11 @@ const VIEWS = {
           <div class="setrow"><span>Lớp</span><select id="kGrade" class="field" style="width:auto">${Array.from({ length:GRADE_MAX }, (_, i) => `<option value="${i + 1}" ${i + 1 === 2 ? 'selected' : ''}>Lớp ${i + 1}${READY_GRADES.includes(i + 1) ? '' : ' (chưa có bài)'}</option>`).join('')}</select></div>
           <span class="label">Hình đại diện</span><div class="avatars">${AVATARS.map((a, i) => `<button type="button" class="avpick ${i === NEW_AV ? 'on' : ''}" data-act="pickAv" data-arg="${i}" aria-label="Hình ${i + 1}">${a}</button>`).join('')}</div>
           <button class="btn primary" type="submit">Thêm bé và tạo link</button></form></section>
+      <section class="panel form"><h3>👾 Giờ đánh quái vật chung mỗi tuần</h3><p class="lead">Thứ Hai – thứ Sáu các bé đánh lẻ 5 phút mỗi ngày (60% máu quái). 40% còn lại cả lớp cùng đánh trong khung giờ này. Hiện tại: <b>${twLabel(bossTW())}</b>.</p>
+        <div class="row" style="justify-content:flex-start"><select id="bwDow" class="field" style="width:auto">${[[6,'Thứ Bảy'],[0,'Chủ nhật']].map(([v, l]) => `<option value="${v}" ${bossTW().dow === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          <select id="bwTime" class="field" style="width:auto">${['08:00','09:00','10:00','14:00','15:00','16:00','17:00','18:00','19:00','19:30','20:00','20:30','21:00'].map(v => `<option ${String(bossTW().h).padStart(2, '0') + ':' + String(bossTW().m).padStart(2, '0') === v ? 'selected' : ''}>${v}</option>`).join('')}</select>
+          <select id="bwMins" class="field" style="width:auto">${[20, 30, 45, 60].map(v => `<option value="${v}" ${bossTW().mins === v ? 'selected' : ''}>${v} phút</option>`).join('')}</select>
+          <button class="btn primary" data-act="tBossSave">Lưu giờ</button></div></section>
       <div class="row"><button class="btn ghost" data-act="tRefresh">↻ Cập nhật</button></div>${out}`;
   },
   tkid() {
@@ -3183,6 +3195,7 @@ const VIEWS = {
         ${READY_GRADES.includes(g - 1) ? `<div class="row" style="justify-content:flex-start"><button class="btn" data-act="go" data-arg="math">Ôn lại Toán lớp ${g - 1}</button><button class="btn" data-act="go" data-arg="eng">Ôn lại Tiếng Anh lớp ${g - 1}</button></div>` : ''}</section>`;
     const cheers = CHEERS.filter(c => c.to === p.id && !DB.cloud.seen.includes(c.id));
     const race = DB.cloud.group && cloudOn() ? `${cheers.length ? `<div class="cheer-in">${cheers.slice(0, 3).map(c => c.k === 'food' ? `${c.f === 'cookie' ? '🍪' : '🍎'} ${esc(c.fn)} tặng khủng long của con một món ăn!` : c.k === 'heart' ? `❤️ ${esc(c.fn)} đã ghé thăm và thả tim cho khủng long của con!` : `${esc(c.e)} ${esc(c.fn)} gửi lời cổ vũ con!`).join('<br>')}</div>` : ''}
+      <button class="racecard" data-act="go" data-arg="arena" style="border-color:var(--sun)"><span class="emo">🏆</span><span><b>Thách đấu</b><small>Đua tàu lên Sao Hỏa · Đánh quái vật cùng cả lớp · Đấu 1 với 1</small></span></button>
       <button class="racecard" data-act="go" data-arg="race"><span class="emo">🏁</span><span><b>Đua sao tuần này</b><small>Con đã có ⭐ ${weekStats(p).ws} sao tuần này. Chạm để xem các bạn trong nhóm "${esc(DB.cloud.groupName || DB.cloud.group)}"</small></span></button>` : '';
     return `<section class="hello"><p class="eyebrow">Trạm điều khiển · Lớp ${g}</p><h1>Chào ${esc(p.name)}! Hôm nay mình bay đến đâu?</h1>
       ${lim ? `<span><span class="chip">${left > 0 ? `⏱️ Còn ${Math.ceil(left / 60000)} phút học hôm nay` : '⏱️ Hôm nay đã học đủ giờ'}</span></span>` : ''}</section>
@@ -3221,7 +3234,7 @@ const VIEWS = {
   },
   quiz() {
     const q = Q.q;
-    const segs = Array.from({ length:Q.total }, (_, i) => `<i class="seg ${i < Q.i ? (Q.marks[i] ? 'ok' : 'miss') : i === Q.i ? 'now' : ''}"></i>`).join('');
+    const segs = Q.game ? '' : Array.from({ length:Q.total }, (_, i) => `<i class="seg ${i < Q.i ? (Q.marks[i] ? 'ok' : 'miss') : i === Q.i ? 'now' : ''}"></i>`).join('');
     let ans = '';
     const lock = Q.locked ? 'disabled' : '';
     if (q.input === 'num') {
@@ -3239,8 +3252,8 @@ const VIEWS = {
         <button class="tile" data-act="tileBack" aria-label="Xóa chữ" ${lock}>⌫</button></div>`;
     }
     const fb = Q.fb ? `<div class="fb ${Q.fb.type}">${Q.fb.html}</div>` : '';
-    return `<div class="qprog">${segs}</div>
-      <div class="qmeta"><span class="tnum">Câu ${Q.i + 1}/${Q.total}</span><span>${Q.kind === 'promo' ? (q.wid || q.eng ? '🎓 Phần Tiếng Anh' : '🎓 Phần Toán') : Q.mode === 'test' ? 'Nhiệm vụ lớn' : Q.kind === 'math' ? `Cấp ${mathState(P(), Q.ref).level}` : 'Bài học'}</span></div>
+    return `${Q.game ? `<div id="ghud" class="ghud">${Q.game.hud()}</div><div hidden>` : ''}<div class="qprog">${segs}</div>
+      <div class="qmeta"><span class="tnum">Câu ${Q.i + 1}/${Q.total}</span><span>${Q.kind === 'promo' ? (q.wid || q.eng ? '🎓 Phần Tiếng Anh' : '🎓 Phần Toán') : Q.mode === 'test' ? 'Nhiệm vụ lớn' : Q.kind === 'math' ? `Cấp ${mathState(P(), Q.ref).level}` : 'Bài học'}</span></div>${Q.game ? '</div>' : ''}
       <div class="qcard ${q.wid || q.eng ? 'eng' : 'math'}">${q.wid || q.eng || mathTalk() ? '<button class="speak" data-act="qSay" aria-label="Nghe đề">🔊</button>' : ''}<div class="qtext">${q.text}</div></div>
       <div class="answer">${ans}</div>${fb}`;
   },
@@ -3342,7 +3355,7 @@ const VIEWS = {
     return `<div class="room small">${roomSVG(pt, {})}</div>
       <div class="dn-top"><span class="gemchip">💎 ${pt.gems} đá vũ trụ</span>${pt.stage < 0 && wearCat ? '<span class="lead">Trứng nở rồi mới thấy đồ mặc nhé.</span>' : ''}</div>
       <div class="filters">${CATS.map(([k, l]) => `<button class="fchip ${SHOPCAT === k ? 'on' : ''}" data-act="shopCat" data-arg="${k}">${l}</button>`).join('')}</div>
-      <div class="shopgrid">${SHOP.filter(i => i.cat === SHOPCAT).map(it => {
+      <div class="shopgrid">${SHOP.filter(i => i.cat === SHOPCAT && (!i.reward || pt.owned.includes(i.id))).map(it => {
         const own = pt.owned.includes(it.id), on = own && usingItem(pt, it); let btn;
         if (own) btn = on ? (['color','room'].includes(it.cat) ? '<button class="btn sm" disabled>Đang dùng</button>' : `<button class="btn sm" data-act="useItem" data-arg="${it.id}">Cất đi</button>`)
           : `<button class="btn sm know" data-act="useItem" data-arg="${it.id}">${it.cat === 'decor' ? 'Đặt vào phòng' : ['color','room'].includes(it.cat) ? 'Dùng' : 'Mặc vào'}</button>`;
@@ -3640,17 +3653,17 @@ function submit(val) {
   if (ok) {
     Q.locked = true;
     if (Q.tries === 0) {
-      Q.score++; Q.stars++; addStars(p, 1); Q.marks[Q.i] = true;
+      Q.score++; Q.marks[Q.i] = true;
+      if (Q.game) { Q.game.hits++; Q.game.hit(); } else { Q.stars++; addStars(p, 1); adapt(true); }   // thách đấu: không cộng sao
       if (topic) { const s = mathState(p, topic); s.att++; s.ok++; }
       if (q.wid) rateWord(q.wid, true);
-      adapt(true);
     }
-    Q.fb = { type:'good', html: Q.tries === 0 ? 'Đúng rồi! +1 ⭐' : 'Đúng rồi! Lần sau con làm đúng ngay nhé.' };
+    Q.fb = { type:'good', html: Q.game ? 'Đúng rồi! 🔥' : Q.tries === 0 ? 'Đúng rồi! +1 ⭐' : 'Đúng rồi! Lần sau con làm đúng ngay nhé.' };
     tone(GOOD); render();
     if (q.wid || q.eng) burst($('.choice.right') || $('.slots'));
     if (q.okSay && talk()) say(q.okSay);
     save();
-    nextT = setTimeout(nextQ, q.wid || q.eng ? 1700 : 1200);
+    nextT = setTimeout(nextQ, Q.game ? 650 : q.wid || q.eng ? 1700 : 1200);
     return;
   }
   Q.tries++; Q.picked = q.input === 'choice' ? val : null;
@@ -3658,15 +3671,15 @@ function submit(val) {
     Q.marks[Q.i] = false;
     if (topic) mathState(p, topic).att++;
     if (q.wid) { rateWord(q.wid, false); if (!Q.wrongWords.includes(q.wid)) Q.wrongWords.push(q.wid); }
-    adapt(false);
+    if (Q.game) { Q.game.streak = 0; Q.game.miss(); } else adapt(false);
   }
   tone(BAD);
   const hint = q.hint ? `<span class="hint">💡 ${esc(q.hint)}</span>` : '';
   if (Q.mode === 'test' || Q.tries >= 2) {
     Q.locked = true;
     const rv = q.reveal || `Đáp án là <b>${esc(q.answer)}</b>${q.unit ? ' ' + esc(q.unit) : ''}`;
-    Q.fb = { type:'bad', html:`<span>${rv}</span>${hint}<button class="btn primary" data-act="qNext">Câu tiếp theo →</button>` };
-    render();
+    Q.fb = { type:'bad', html: Q.game ? `<span>${val === '__het_gio__' ? '⏰ Hết giờ! ' : ''}${rv}</span>` : `<span>${rv}</span>${hint}<button class="btn primary" data-act="qNext">Câu tiếp theo →</button>` };
+    render(); if (Q.game) nextT = setTimeout(nextQ, 1500);
     if (talk()) say(q.revealSay || toParts(`Đáp án là ${q.answer}. ${q.hint || ''}`));
   } else {
     Q.input = ''; Q.sel = [];
@@ -3679,12 +3692,14 @@ function submit(val) {
 }
 function nextQ() {
   clearTimeout(nextT);
+  if (Q.game) { if (Q.game.done || (Q.game.n && Q.i + 1 >= Q.game.n)) return finish(); Q.items.push(gameQ()); Q.total = Math.max(Q.total, Q.items.length); Q.qStart = Date.now(); }
   Q.i++;
   if (Q.i >= Q.total) return finish();
   loadQ(); render(); speakQ();
 }
 function streak(p) { const s = new Set(p.days); let n = 0, d = today(); if (!s.has(d)) d--; while (s.has(d)) { n++; d--; } return n; }
 function finish() {
+  if (Q && Q.game) { if (!Q.game.ended) { Q.game.ended = true; Q.game.end(); } return; }
   const p = P(), t = today();
   const bonus = Q.score === Q.total ? 3 : 0; if (bonus) addStars(p, bonus); Q.stars += bonus;
   p.log.push({ d:t, kind:Q.kind, ref:Q.ref, mode:Q.mode, score:Q.score, total:Q.total });
@@ -3769,6 +3784,11 @@ const ACT = {
   },
   tLogout: () => { DB.teach = null; T_TOKEN = null; TEACH = { state:'', cls:null, kids:[], msg:'' }; TKID = null; save(); render(); },
   tRefresh: () => { TEACH.msg = ''; tLoad(); },
+  tBossSave: async () => {
+    const [h, m] = $('#bwTime').value.split(':').map(Number), tw = { dow:+$('#bwDow').value, h, m, mins:+$('#bwMins').value };
+    try { await tReq('PATCH', `/groups/${TEACH.cls.id}`, { fields:fsFields({ boss:JSON.stringify(tw) }) }, '?' + mask(['boss'])); DB.cloud.bossTW = tw; TEACH.cls.boss = JSON.stringify(tw); save(); TEACH.msg = `Đã lưu giờ đánh quái chung: ${twLabel(tw)}.`; render(); }
+    catch (e) { toast('Chưa lưu được, kiểm tra mạng nhé.'); }
+  },
   visitFriend: a => go('visit', { id:a }),
   friendPlay: () => {
     const r = $('#room > div'); if (!r) return;
@@ -4067,6 +4087,194 @@ document.addEventListener('change', e => {
   if (id === 'sPass') { DB.settings.passPct = +e.target.value; save(); render(); }
   if (id === 'sGrade') { const p = P(), g = +e.target.value; if (g !== gradeOf(p)) { const from = gradeOf(p); p.grade = g; p.promo = null; p.assign = null; (p.gradeLog = p.gradeLog || []).push({ d:today(), from, to:g, how:'sua' }); save(); cloudSync(p); render(); toast(`Đã đổi ${p.name} sang lớp ${g}`); } }
 });
+
+/* ========== THÁCH ĐẤU: Đua tàu lên Sao Hỏa · Quái vật Thiên thạch · Đấu 1 với 1 ==========
+   Dữ liệu: groups/{lớp}/games/{id} { k, q (khoá tìm kiếm), q2, pid, fn, av, grade, data (JSON), t }
+   - race-{tuần}-{bé}  k:'race'  q:'race:{tuần}'   data { best, runs }
+   - boss-{tuần}       k:'boss'  q:'bossc:{tuần}'  data { hp, n }          (tạo một lần, máu theo số bé)
+   - bk-{tuần}-{bé}    k:'bossk' q:'boss:{tuần}'   data { s1, s2 }         (phát bắn đánh lẻ / đồng đội)
+   - duel-{mã}         k:'duel'  q:'duelto:{bé nhận}' q2:'duelfrom:{bé mời}' data { from, fn, to, tn, s1, c1, s2, c2, st, d }
+   Mỗi bé trả lời câu hỏi đúng lớp của mình nên các lớp đấu công bằng. Chơi thách đấu được 💎, không được ⭐ (sao chỉ từ học bài). */
+const RACE_RUNS = 3, RACE_SECS = 180, BOSS_SECS = 300, BOSS_HP_KID = 80, BOSS_SOLO = 0.6, DUEL_N = 10, DUEL_DAY = 3;
+const BOSSES = [['👾','Quái vật Thiên thạch'],['🐙','Bạch tuộc Sao chổi'],['🦂','Bọ cạp Hố đen'],['🐉','Rồng Lửa Mặt trời'],['🤖','Người máy Băng giá']];
+const ARENA = { race:[], boss:null, kids:[], duIn:[], duOut:[], state:'', last:[] };
+let GRES = null, gTick = null;
+const gData = () => { const p = P(); p.games = p.games || { raceRuns:{}, boss:{}, duel:{}, claim:{} }; return p.games; };
+const dowNow = () => new Date().getDay();   // 0 = Chủ nhật, 6 = thứ Bảy
+const raceOpen = () => [0, 6].includes(dowNow());
+const bossTW = () => Object.assign({ dow:6, h:20, m:0, mins:30 }, DB.cloud.bossTW || {});
+const twLabel = tw => `${tw.dow === 0 ? 'Chủ nhật' : 'Thứ ' + ['','Hai','Ba','Tư','Năm','Sáu','Bảy'][tw.dow]} ${String(tw.h).padStart(2, '0')}:${String(tw.m).padStart(2, '0')}–${(() => { const e = tw.h * 60 + tw.m + tw.mins; return String(Math.floor(e / 60)).padStart(2, '0') + ':' + String(e % 60).padStart(2, '0'); })()}`;
+const teamOpen = () => { const tw = bossTW(), d = new Date(), m = d.getHours() * 60 + d.getMinutes(), s = tw.h * 60 + tw.m; return d.getDay() === tw.dow && m >= s && m < s + tw.mins; };
+const teamOver = () => { const tw = bossTW(), d = new Date(), m = d.getHours() * 60 + d.getMinutes(), dd = x => x === 0 ? 7 : x;   // đã qua giờ đánh chung của tuần này
+  return dd(d.getDay()) > dd(tw.dow) || (d.getDay() === tw.dow && m >= tw.h * 60 + tw.m + tw.mins); };
+const soloOpen = () => dowNow() >= 1 && dowNow() <= 5;
+async function gList(field, key) {
+  const res = await fsReq('POST', `/groups/${DB.cloud.group}:runQuery`, { structuredQuery:{ from:[{ collectionId:'games' }], where:{ fieldFilter:{ field:{ fieldPath:field }, op:'EQUAL', value:{ stringValue:key } } } } });
+  return (res || []).filter(r => r.document).map(r => { const o = fsObj(r.document); let d = {}; try { d = JSON.parse(o.data || '{}'); } catch (e) {} return Object.assign({ id:docId(r.document), pid:o.pid, fn:o.fn, av:o.av, grade:o.grade, t:o.t, q:o.q, q2:o.q2 }, d); });
+}
+async function gPut(id, k, q, data, who, q2) {
+  const p = who || P();
+  await fsReq('PATCH', `/groups/${DB.cloud.group}/games/${id}`, { fields:fsFields({ k, q, q2:q2 || '', pid:p.id, fn:String(p.name).slice(0, 16), av:p.avatar, grade:gradeOf(p), data:JSON.stringify(data), t:Date.now() }) });
+}
+function gameQ() {   // một câu ngẫu nhiên đúng lớp: nửa Toán, nửa Tiếng Anh
+  const p = P(), c = C(p);
+  if (Math.random() < .55) { const tps = c.math.filter(t => !t.adv), t = pick(tps).id; return Object.assign(GEN[t](Math.min(3, mathState(p, t).level)), { topic:t }); }
+  const w = pick(gradeWords(VG(p)).filter(x => !x.ext)); return engQ(pick(engTypes(w).filter(x => x !== 'spell').concat('spell')), w.id);
+}
+function startGame(cfg) {
+  if (!canStudy()) return;
+  clearInterval(gTick);
+  cfg.t0 = Date.now(); cfg.score = 0; cfg.hits = 0; cfg.streak = 0;
+  startQuiz({ kind:'game', ref:'game', mode:'test', items:[gameQ()], title:cfg.title, game:cfg });
+  Q.total = cfg.n || 9999; Q.qStart = Date.now();
+  gTick = setInterval(() => {
+    if (!Q || !Q.game || route.name !== 'quiz') { clearInterval(gTick); return; }
+    const g = Q.game, el = $('#ghud'); if (el) el.innerHTML = g.hud();
+    if (g.secs && Date.now() - g.t0 >= g.secs * 1000 && !g.done) { g.done = true; if (!Q.locked) { clearTimeout(nextT); finish(); } }
+    if (g.qsecs && !Q.locked && Date.now() - Q.qStart >= g.qsecs * 1000) submit('__het_gio__');
+  }, 250);
+}
+const gLeft = g => Math.max(0, Math.ceil(g.secs - (Date.now() - g.t0) / 1000));
+const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const bossHP = () => { const b = ARENA.boss; if (!b) return null; const hp1 = Math.round(b.hp * BOSS_SOLO), s1 = ARENA.kids.reduce((a, k) => a + (k.s1 || 0), 0), s2 = ARENA.kids.reduce((a, k) => a + (k.s2 || 0), 0);
+  return { hp:b.hp, hp1, left:Math.max(0, b.hp - Math.min(s1, hp1) - s2), solo1Left:Math.max(0, hp1 - s1), s1, s2 }; };
+const bossOf = wk => BOSSES[Math.abs(wk) % BOSSES.length];
+async function arenaLoad() {
+  if (!cloudOn() || !DB.cloud.group) return;
+  const p = P(), wk = weekStart(today());
+  ARENA.state = 'loading'; if (['arena','boss','duel'].includes(route.name)) render();
+  try {
+    if (!RACE.list.length) await raceLoad();
+    const [race, bc, kids, din, dout, last] = await Promise.all([gList('q', 'race:' + wk), gList('q', 'bossc:' + wk), gList('q', 'boss:' + wk), gList('q', 'duelto:' + p.id), gList('q2', 'duelfrom:' + p.id), gList('q', 'race:' + (wk - 7))]);
+    ARENA.race = race.sort((a, b) => b.best - a.best); ARENA.last = last.sort((a, b) => b.best - a.best);
+    ARENA.boss = bc[0] || null; ARENA.kids = kids; ARENA.duIn = din; ARENA.duOut = dout;
+    if (!ARENA.boss) { const n = Math.max(3, RACE.list.length); ARENA.boss = { hp:n * BOSS_HP_KID, n }; gPut('boss-' + wk, 'boss', 'bossc:' + wk, ARENA.boss).catch(() => {}); }
+    ARENA.state = 'ok'; arenaClaims();
+  } catch (e) { ARENA.state = 'err'; }
+  if (['arena','boss','duel','home'].includes(route.name)) render();
+}
+function arenaClaims() {   // nhận thưởng: phi công tuần trước, hạ quái, kết quả đấu
+  const p = P(), gd = gData(), wk = weekStart(today()), pt = pet(p); let msg = [];
+  const top = ARENA.last[0];
+  if (top && top.pid === p.id && !gd.claim['pilot' + (wk - 7)]) { gd.claim['pilot' + (wk - 7)] = 1; pt.gems += 20; if (!p.badges.includes('pilot')) p.badges.push('pilot'); msg.push('🏆 Con là Phi công nhanh nhất tuần trước! +20 💎'); }
+  const h = bossHP(), me = ARENA.kids.find(k => k.pid === p.id);
+  if (h && h.left <= 0 && me && (me.s1 + me.s2) > 0 && !gd.claim['boss' + wk]) {
+    gd.claim['boss' + wk] = 1; pt.gems += 30; ['helm','d-shield'].forEach(id => { if (!pt.owned.includes(id)) pt.owned.push(id); });
+    const best = Math.max(...ARENA.kids.map(k => (k.s1 || 0) + (k.s2 || 0)));
+    if (me.s1 + me.s2 === best && !p.badges.includes('slayer')) p.badges.push('slayer');
+    msg.push(`👾 Cả đội đã hạ quái vật! +30 💎 và đồ hiếm cho khủng long${me.s1 + me.s2 === best ? ' – con là Dũng sĩ diệt quái ⚔️' : ''}`);
+  }
+  for (const d of ARENA.duOut.filter(x => x.st === 'done' && !gd.claim['duel' + x.id])) {
+    gd.claim['duel' + d.id] = 1; const r = d.s1 > d.s2 ? 'thắng' : d.s1 < d.s2 ? 'thua' : 'hòa', g = r === 'thắng' ? 15 : r === 'hòa' ? 10 : 5; pt.gems += g;
+    msg.push(`⚔️ ${d.tn} đã nhận lời đấu: con ${d.s1} – ${d.s2}, con ${r}! +${g} 💎`);
+  }
+  if (msg.length) { save(); cloudSync(p); ARENA.msg = msg.join('\n'); }
+}
+/* ---- màn hình ---- */
+const gHudBar = (pct, label) => `<div class="xpbar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div><span>${label}</span>`;
+Object.assign(VIEWS, {
+  arena() {
+    const p = P(), gd = gData(), wk = weekStart(today());
+    if (!cloudOn() || !DB.cloud.group) return '<p class="panel lead">Bé cần ở trong lớp (mở bằng link giáo viên gửi) thì mới vào Thách đấu được.</p>';
+    if (ARENA.state !== 'ok' && ARENA.state !== 'loading') { setTimeout(arenaLoad, 0); return '<p class="panel lead">Đang mở đấu trường… 🚀</p>'; }
+    const runs = (gd.raceRuns[wk] || []).length, my = ARENA.race.find(r => r.pid === p.id), h = bossHP(), [be, bn] = bossOf(wk);
+    const inv = ARENA.duIn.filter(d => d.st === 'wait' && today() - d.d <= 1).length;
+    return `${ARENA.msg ? `<p class="cheer-in" style="white-space:pre-line">${esc(ARENA.msg)}</p>` : ''}
+      <button class="racecard" data-act="go" data-arg="raceboard"><span class="emo">🚀</span><span><b>Đua tàu lên Sao Hỏa</b><small>${raceOpen() ? `Mở hôm nay! Con còn ${Math.max(0, RACE_RUNS - runs)}/${RACE_RUNS} lượt, mỗi lượt 3 phút.` : 'Mở vào thứ Bảy và Chủ nhật.'}${my ? ` Tốt nhất: ${my.best} km.` : ''}</small></span></button>
+      <button class="racecard" data-act="go" data-arg="boss"><span class="emo">${be}</span><span><b>${bn}</b><small>${h ? (h.left <= 0 ? '✅ Cả đội đã hạ quái vật tuần này!' : `Máu còn ${h.left}/${h.hp}. ${soloOpen() ? 'Đánh lẻ 5 phút mỗi ngày (thứ Hai – thứ Sáu).' : ''} Trận đồng đội: ${twLabel(bossTW())}.`) : ''}</small></span></button>
+      <button class="racecard" data-act="go" data-arg="duel"><span class="emo">⚔️</span><span><b>Đấu 1 với 1</b><small>${inv ? `🔔 Con có ${inv} lời mời đấu!` : 'Mời một bạn trong lớp đấu 10 câu. Bạn chơi sau cũng được.'}</small></span></button>
+      <p class="lead">Thách đấu thưởng 💎 cho khủng long. Mỗi bé trả lời câu hỏi đúng lớp của mình. Thời gian chơi tính vào giới hạn giờ hằng ngày.</p>`;
+  },
+  raceboard() {
+    const p = P(), gd = gData(), wk = weekStart(today()), runs = gd.raceRuns[wk] || [];
+    const rows = ARENA.race.map((r, i) => `<div class="rrow ${r.pid === p.id ? 'me' : ''}"><span class="rk">${['🥇','🥈','🥉'][i] || '🚀'}</span><span class="av">${esc(r.av)}</span><span class="nm">${esc(r.fn)}<span class="gradechip">Lớp ${r.grade}</span><span class="sub" style="display:block">🚀 ${r.best} km · ${(r.runs || []).length} lượt</span></span></div>`).join('');
+    return `<div class="team"><b>🚀 Đua tàu lên Sao Hỏa</b><span class="lead">Trả lời đúng thì tàu bay tiếp, đúng 3 câu liền được tăng tốc 🔥. Bảng xếp hạng lấy lượt tốt nhất trong tuần, người dẫn đầu được danh hiệu 🏆 "Phi công nhanh nhất".</span>
+        ${raceOpen() ? (runs.length < RACE_RUNS ? `<button class="btn primary big" data-act="raceGo">Bay thôi! (lượt ${runs.length + 1}/${RACE_RUNS})</button>` : '<span class="lead">Con đã bay hết 3 lượt tuần này.</span>') : '<span class="lead">Đường đua mở vào thứ Bảy và Chủ nhật.</span>'}</div>
+      <div class="rlist">${rows || '<p class="panel lead">Tuần này chưa ai bay. Con hãy là người đầu tiên!</p>'}</div>`;
+  },
+  boss() {
+    const p = P(), gd = gData(), wk = weekStart(today()), h = bossHP(), [be, bn] = bossOf(wk), t = today();
+    if (!h) { setTimeout(arenaLoad, 0); return '<p class="panel lead">Đang tìm quái vật…</p>'; }
+    const used = gd.boss.d === t ? gd.boss.secs : 0, left = Math.max(0, BOSS_SECS - used);
+    const kids = ARENA.kids.slice().sort((a, b) => (b.s1 + b.s2) - (a.s1 + a.s2));
+    const btn = h.left <= 0 ? '<p class="cheer-in">🎉 Quái vật đã bị hạ! Mỗi bạn tham gia nhận 30 💎 và đồ hiếm cho khủng long (xem trong Cửa hàng).</p>'
+      : teamOpen() ? '<button class="btn primary big" data-act="bossGo" data-arg="team">⚔️ Vào trận đồng đội!</button>'
+      : soloOpen() && h.solo1Left > 0 ? (left > 0 ? `<button class="btn primary big" data-act="bossGo" data-arg="solo">Đánh lẻ (còn ${mmss(left)} hôm nay)</button>` : '<p class="lead">Hôm nay con đã đánh đủ 5 phút. Mai đánh tiếp nhé!</p>')
+      : soloOpen() ? '<p class="lead">Phần đánh lẻ đã xong! Chờ trận đồng đội nhé.</p>' : teamOver() ? '<p class="lead">Quái vật đã bỏ chạy. Tuần sau cả đội cố gắng hơn nhé!</p>' : `<p class="lead">Trận đồng đội: ${twLabel(bossTW())}.</p>`;
+    return `<div class="team" style="text-align:center;align-items:center"><span id="bossemo" style="font-size:90px;line-height:1">${h.left <= 0 ? '💥' : be}</span><b>${bn}</b>
+        ${gHudBar(h.left / h.hp * 100, `❤️ Máu còn ${h.left}/${h.hp}`)}
+        <span class="lead">Phần 1 – đánh lẻ (thứ Hai – thứ Sáu): ${Math.min(h.s1, h.hp1)}/${h.hp1} phát · Phần 2 – trận đồng đội ${twLabel(bossTW())}</span>${btn}</div>
+      <div class="rlist">${kids.map(k => `<div class="rrow ${k.pid === p.id ? 'me' : ''}"><span class="rk">🔫</span><span class="av">${esc(k.av)}</span><span class="nm">${esc(k.fn)}<span class="gradechip">Lớp ${k.grade}</span><span class="sub" style="display:block">${(k.s1 || 0) + (k.s2 || 0)} phát bắn</span></span></div>`).join('') || '<p class="panel lead">Chưa ai đánh quái tuần này.</p>'}</div>
+      <div class="row"><button class="btn ghost" data-act="arenaReload">↻ Cập nhật</button></div>`;
+  },
+  duel() {
+    const p = P(), gd = gData(), t = today(), n = gd.duel.d === t ? gd.duel.n : 0;
+    const inv = ARENA.duIn.filter(d => d.st === 'wait' && t - d.d <= 1);
+    const friends = RACE.list.filter(m => m.id !== p.id && m.nick);
+    return `<p class="lead">Con chơi 10 câu trước, bạn chơi sau rồi so điểm. Điểm = câu đúng + nhanh tay. Mỗi ngày tối đa ${DUEL_DAY} trận (con đã đấu ${n}).</p>
+      ${inv.length ? `<div class="team"><b>🔔 Lời mời đấu</b>${inv.map(d => `<div class="row" style="justify-content:space-between"><span>${esc(d.fn)} (lớp ${d.grade}) được <b>${d.s1}</b> điểm, thách con!</span><button class="btn primary" data-act="duelAccept" data-arg="${d.id}" ${n >= DUEL_DAY ? 'disabled' : ''}>Nhận đấu</button></div>`).join('')}</div>` : ''}
+      <div class="pcard"><h3>Mời bạn đấu</h3><div class="checks">${friends.map(m => `<div class="check"><span class="emo" style="font-size:26px">${esc(m.av)}</span><span style="flex:1">${esc(m.nick)} · lớp ${m.grade}</span><button class="btn sm primary" data-act="duelInvite" data-arg="${m.id}" ${n >= DUEL_DAY ? 'disabled' : ''}>Mời đấu</button></div>`).join('') || '<p class="lead">Lớp chưa có bạn nào khác.</p>'}</div></div>
+      ${ARENA.duOut.length ? `<div class="pcard"><h3>Trận con đã mời</h3><div class="checks">${ARENA.duOut.slice(-8).reverse().map(d => `<div class="check"><span style="flex:1">⚔️ ${esc(d.tn)}: ${d.st === 'done' ? `con ${d.s1} – ${d.s2} bạn · ${d.s1 > d.s2 ? 'con thắng 🎉' : d.s1 < d.s2 ? 'bạn thắng' : 'hòa'}` : `con ${d.s1} điểm, đang chờ bạn…`}</span></div>`).join('')}</div></div>` : ''}`;
+  },
+  gres() {
+    const r = GRES; if (!r) return '';
+    return `<section class="done"><div class="stars-row">${r.emo}</div><h2>${esc(r.title)}</h2><p class="score"><b class="tnum">${r.big}</b></p><p class="lead">${r.text}</p>${r.gems ? `<p class="chip">+${r.gems} 💎</p>` : ''}
+      <div class="row"><button class="btn primary big" data-act="go" data-arg="${r.back}">Tiếp tục 🚀</button><button class="btn" data-act="go" data-arg="arena">🏆 Đấu trường</button></div></section>`;
+  },
+});
+Object.assign(META, { arena:{ back:'home', title:'Thách đấu' }, raceboard:{ back:'arena', title:'Đua tàu lên Sao Hỏa' }, boss:{ back:'arena', title:'Quái vật Thiên thạch' }, duel:{ back:'arena', title:'Đấu 1 với 1' }, gres:{ back:'arena', title:'Kết quả' } });
+const gEnd = (r) => { clearInterval(gTick); const p = P(); if (r.gems) pet(p).gems += r.gems; GRES = r; save(); cloudSync(p); go('gres'); tone([523, 659, 784, 1047]); };
+Object.assign(ACT, {
+  arenaReload: () => { ARENA.msg = ''; arenaLoad(); },
+  raceGo: () => {
+    const gd = gData(), wk = weekStart(today()); if (!raceOpen() || (gd.raceRuns[wk] || []).length >= RACE_RUNS) return;
+    startGame({ title:'🚀 Đua tàu lên Sao Hỏa', secs:RACE_SECS,
+      hud() { return `<div class="qmeta"><span class="tnum">⏱️ ${mmss(gLeft(this))}</span><span>🚀 ${this.score} km ${this.streak >= 3 ? '🔥 Tăng tốc!' : ''}</span></div>${gHudBar(this.score / 3, '🌍 → 🔴 Sao Hỏa')}`; },
+      hit() { this.streak++; this.score += this.streak >= 3 ? 20 : 10; }, miss() { this.streak = 0; this.score = Math.max(0, this.score - 2); },
+      end() { const p = P(), runs = (gd.raceRuns[wk] = gd.raceRuns[wk] || []); runs.push(this.score); const best = Math.max(...runs), gems = Math.min(10, Math.floor(this.score / 30));
+        gPut(`race-${wk}-${p.id}`, 'race', 'race:' + wk, { best, runs }).then(arenaLoad).catch(() => {});
+        gEnd({ emo:'🚀', title:'Hạ cánh!', big:`${this.score} km`, text:`Con trả lời đúng ${this.hits} câu. Lượt tốt nhất tuần này: ${best} km. Còn ${RACE_RUNS - runs.length} lượt.`, gems, back:'raceboard' }); } });
+  },
+  bossGo: a => {
+    const p = P(), gd = gData(), wk = weekStart(today()), t = today(), team = a === 'team';
+    if (gd.boss.d !== t) gd.boss = { d:t, secs:0 };
+    const left = team ? 30 * 60 : BOSS_SECS - gd.boss.secs; if (left <= 0) return;
+    const me = ARENA.kids.find(k => k.pid === p.id) || { s1:0, s2:0 }; let pending = 0;
+    const flush = () => { me.s1 = me.s1 || 0; me.s2 = me.s2 || 0; return gPut(`bk-${wk}-${p.id}`, 'bossk', 'boss:' + wk, { s1:me.s1, s2:me.s2 }).catch(() => {}); };
+    if (!ARENA.kids.includes(me)) { me.pid = p.id; me.fn = p.name; me.av = p.avatar; me.grade = gradeOf(p); ARENA.kids.push(me); }
+    const poll = team ? setInterval(() => gList('q', 'boss:' + wk).then(ks => { ARENA.kids = ks.map(k => k.pid === p.id ? Object.assign(k, { s1:me.s1, s2:me.s2 }) : k); if (!ARENA.kids.some(k => k.pid === p.id)) ARENA.kids.push(me); }).catch(() => {}), 3000) : null;
+    const [be] = bossOf(wk);
+    startGame({ title: team ? '⚔️ Trận đồng đội' : '🔫 Đánh lẻ quái vật', secs:left,
+      hud() { const h = bossHP(); return `<div class="qmeta"><span class="tnum">⏱️ ${mmss(gLeft(this))}</span><span>${be} 🔫 ${this.hits} phát</span></div>${gHudBar(h.left / h.hp * 100, `❤️ Máu quái ${h.left}/${h.hp}${team ? ` · ${ARENA.kids.filter(k => k.s2 > 0).length} bạn đang chiến đấu` : ''}`)}`; },
+      hit() { if (team) me.s2++; else me.s1++; if (++pending >= 3) { pending = 0; flush(); } const h = bossHP(); if (h.left <= 0 || (!team && h.solo1Left <= 0)) this.done = true; },
+      miss() {},
+      end() { clearInterval(poll); flush().then(arenaLoad); if (!team) { gd.boss.secs += Math.round((Date.now() - this.t0) / 1000); }
+        const h = bossHP(); gEnd({ emo: h.left <= 0 ? '💥' : be, title: h.left <= 0 ? 'Quái vật đã bị hạ!' : 'Bắn tốt lắm!', big:`${this.hits} phát bắn`, text: h.left <= 0 ? 'Cả đội thắng rồi! Vào Đấu trường để nhận thưởng.' : `Máu quái còn ${h.left}/${h.hp}.`, gems:Math.min(5, Math.ceil(this.hits / 5)), back:'boss' }); } });
+  },
+  duelInvite: a => { const gd = gData(), t = today(), m = RACE.list.find(x => x.id === a); if (!m) return; if (gd.duel.d !== t) gd.duel = { d:t, n:0 }; if (gd.duel.n >= DUEL_DAY) return; duelPlay({ to:m.id, tn:m.nick }); },
+  duelAccept: a => { const gd = gData(), t = today(), d = ARENA.duIn.find(x => x.id === a); if (!d || d.st !== 'wait') return; if (gd.duel.d !== t) gd.duel = { d:t, n:0 }; if (gd.duel.n >= DUEL_DAY) return; duelPlay(null, d); },
+});
+function duelPlay(inv, d) {
+  const p = P(), qs = gradeOf(p) <= 2 ? 20 : 15;
+  startGame({ title: d ? `⚔️ Đấu với ${d.fn}` : `⚔️ Thách đấu ${inv.tn}`, n:DUEL_N, qsecs:qs,
+    hud() { const r = Math.max(0, Math.ceil(qs - (Date.now() - Q.qStart) / 1000)); return `<div class="qmeta"><span class="tnum">Câu ${Q.i + 1}/${DUEL_N} · ⏱️ ${r}s</span><span>⚔️ ${this.score} điểm${d ? ` · bạn ${d.s1}` : ''}</span></div>${gHudBar(r / qs * 100, 'Trả lời nhanh được thêm điểm')}`; },
+    hit() { this.score += 100 + Math.round(50 * Math.max(0, qs * 1000 - (Date.now() - Q.qStart)) / (qs * 1000)); },
+    miss() {},
+    end() {
+      const gd = gData(); gd.duel.n++;
+      if (d) {
+        const res = Object.assign({}, d, { s2:this.score, c2:this.hits, st:'done' }); delete res.id;
+        const host = { id:d.pid, name:d.fn, avatar:d.av, grade:d.grade };
+        gPut(d.id, 'duel', d.q, { from:res.from, fn:res.fn, to:res.to, tn:res.tn, s1:res.s1, c1:res.c1, s2:res.s2, c2:res.c2, st:'done', d:res.d }, host, d.q2).then(arenaLoad).catch(() => {});
+        const r = this.score > d.s1 ? 'thắng' : this.score < d.s1 ? 'thua' : 'hòa';
+        gEnd({ emo: r === 'thắng' ? '🏆' : '⚔️', title:`Con ${r}!`, big:`${this.score} – ${d.s1}`, text:`Con đúng ${this.hits}/${DUEL_N} câu, ${d.fn} được ${d.s1} điểm.`, gems: r === 'thắng' ? 15 : r === 'hòa' ? 10 : 5, back:'duel' });
+      } else {
+        const id = 'duel-' + rid(10).toLowerCase();
+        gPut(id, 'duel', 'duelto:' + inv.to, { from:p.id, fn:p.name, to:inv.to, tn:inv.tn, s1:this.score, c1:this.hits, s2:null, c2:null, st:'wait', d:today() }, null, 'duelfrom:' + p.id).then(arenaLoad).catch(() => toast('Chưa gửi được lời mời, kiểm tra mạng nhé.'));
+        gEnd({ emo:'⚔️', title:'Đã gửi lời thách đấu!', big:`${this.score} điểm`, text:`Con đúng ${this.hits}/${DUEL_N} câu. Khi ${inv.tn} chơi xong, con sẽ thấy kết quả trong Đấu 1 với 1.`, gems:0, back:'duel' });
+      }
+    } });
+}
 
 /* time tracking: only while doing a lesson or flipping cards */
 let tick = 0;
